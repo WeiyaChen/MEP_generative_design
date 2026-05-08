@@ -1,0 +1,66 @@
+{
+  "rectangles": [
+    {"id": "R1", "width": 5, "height": 4, "rotatable": true, "mandatory": true},
+    {"id": "R2", "width": 6, "height": 4, "rotatable": true, "mandatory": true},
+    {"id": "R3", "width": 4, "height": 3, "rotatable": true, "mandatory": false},
+    {"id": "R4", "width": 5, "height": 5, "rotatable": true, "mandatory": false},
+    {"id": "R5", "width": 9, "height": 3, "rotatable": true, "mandatory": false}
+  ],
+  "layout_seed": 42,
+  "equipment": [
+    {
+      "rect_id": "R1",
+      "height": 3.0,
+      "ports": [
+        {"id": "P1_in",  "face": "top",   "u": 0.3, "v": 0.5},
+        {"id": "P1_out", "face": "right",  "u": 0.5, "v": 0.5}
+      ]
+    },
+    {
+      "rect_id": "R2",
+      "height": 3.0,
+      "ports": [
+        {"id": "P2_in",  "face": "top",    "u": 0.5, "v": 0.7},
+        {"id": "P2_out", "face": "left",   "u": 0.5, "v": 0.5}
+      ]
+    },
+    {
+      "rect_id": "R3",
+      "height": 2.5,
+      "ports": [
+        {"id": "P3_in",  "face": "top",    "u": 0.5, "v": 0.5},
+        {"id": "P3_out", "face": "back",   "u": 0.5, "v": 0.5}
+      ]
+    },
+    {
+      "rect_id": "R4",
+      "height": 3.5,
+      "ports": [
+        {"id": "P4_in",  "face": "top",    "u": 0.5, "v": 0.5},
+        {"id": "P4_out", "face": "front",  "u": 0.5, "v": 0.5}
+      ]
+    },
+    {
+      "rect_id": "R5",
+      "height": 2.8,
+      "ports": [
+        {"id": "P5_in",  "face": "top",    "u": 0.5, "v": 0.5},
+        {"id": "P5_out", "face": "left",   "u": 0.5, "v": 0.5}
+      ]
+    }
+  ],
+  "connections": [
+    ["P1_in",  "P2_in",  "P3_in",  "P4_in",  "P5_in" ],
+    ["P1_out", "P2_out", "P3_out", "P4_out", "P5_out"]
+  ],
+  "ga_2d_kwargs": {
+    "population_size": 100,
+    "generations": 250
+  },
+  "ga_3d_kwargs": {
+    "max_height": 8.0,
+    "population_size": 180,
+    "generations": 350,
+    "collision_penalty": 800.0
+  }
+}
