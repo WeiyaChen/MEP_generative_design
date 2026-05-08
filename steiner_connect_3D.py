@@ -1,11 +1,11 @@
 """
-steiner_connect_3D.py — 基于遗传算法的三维斯坦纳树连接优化。
+steiner_connect_3D.py — 基于遗传算法的三维斯坦纳树连接优化（正交布线版）。
 
-将二维排布结果提升为三维长方体，定义设备端口（入口/出口）及连接关系，
-采用斯坦纳树建模，在三维碰撞约束下优化连接线总长度最小。
+约束：所有连接线段必须沿 X/Y/Z 轴方向，不允许斜线。
+采用曼哈顿距离建模，每条逻辑边分解为 3 段正交线段进行碰撞检测。
 
 输入：二维排布结果 + 长方体高度 + 端口定义 + 连接组
-输出：斯坦纳树连接方案（Steiner点位置 + 树边集合）
+输出：斯坦纳树连接方案（Steiner点位置 + 正交树边集合）
 """
 from __future__ import annotations
 import argparse
@@ -36,54 +36,49 @@ class Cuboid3D:
     angle: float       # 绕 Z 轴旋转
 
     def face_center(self, face: str) -> Tuple[float, float, float]:
-        """返回指定面中心的世界坐标。"""
         hw, hd, hh = self.width / 2, self.depth / 2, self.height / 2
         ca, sa = math.cos(self.angle), math.sin(self.angle)
-        # 局部坐标系中的偏移
         local = {
-            "front":  (0.0,  hd, 0.0),   # +Y face
-            "back":   (0.0, -hd, 0.0),   # -Y face
-            "right":  ( hw, 0.0, 0.0),   # +X face
-            "left":   (-hw, 0.0, 0.0),   # -X face
-            "top":    (0.0, 0.0,  hh),   # +Z face
-            "bottom": (0.0, 0.0, -hh),   # -Z face
+            "front":  (0.0,  hd, 0.0),
+            "back":   (0.0, -hd, 0.0),
+            "right":  ( hw, 0.0, 0.0),
+            "left":   (-hw, 0.0, 0.0),
+            "top":    (0.0, 0.0,  hh),
+            "bottom": (0.0, 0.0, -hh),
         }
         lx, ly, lz = local[face]
-        # 绕 Z 旋转
         wx = self.cx + lx * ca - ly * sa
         wy = self.cy + lx * sa + ly * ca
         wz = self.cz + lz
         return (wx, wy, wz)
 
     def face_to_world(self, face: str, u: float, v: float) -> Tuple[float, float, float]:
-        """将面上的局部坐标 (u, v) ∈ [0,1]×[0,1] 转为世界坐标。"""
         hw, hd, hh = self.width / 2, self.depth / 2, self.height / 2
         ca, sa = math.cos(self.angle), math.sin(self.angle)
 
-        PORT_OFFSET = 0.12  # 端口外偏移，避免碰撞误判
+        PORT_OFFSET = 0.12
 
-        # local (u,v) → local 3D offset（含外偏移）
-        if face == "front":    # +Y, u→X, v→Z
+        if face == "front":
             lx = (u - 0.5) * self.width
             ly = hd + PORT_OFFSET
             lz = (v - 0.5) * self.height
-        elif face == "back":   # -Y, u→X, v→Z
+        elif face == "back":
             lx = (u - 0.5) * self.width
             ly = -hd - PORT_OFFSET
             lz = (v - 0.5) * self.height
-        elif face == "right":  # +X, u→Y, v→Z
+        elif face == "right":
             lx = hw + PORT_OFFSET
             ly = (u - 0.5) * self.depth
             lz = (v - 0.5) * self.height
-        elif face == "left":   # -X, u→Y, v→Z
+        elif face == "left":
             lx = -hw - PORT_OFFSET
             ly = (u - 0.5) * self.depth
             lz = (v - 0.5) * self.height
-        elif face == "top":    # +Z, u→X, v→Y
+        elif face == "top":
             lx = (u - 0.5) * self.width
             ly = (v - 0.5) * self.depth
             lz = hh + PORT_OFFSET
-        elif face == "bottom": # -Z, u→X, v→Y
+        elif face == "bottom":
             lx = (u - 0.5) * self.width
             ly = (v - 0.5) * self.depth
             lz = -hh - PORT_OFFSET
@@ -98,17 +93,15 @@ class Cuboid3D:
 
 @dataclass(frozen=True)
 class Port:
-    """设备上的连接端口。"""
     id: str
     cuboid_id: str
-    face: str      # "front"|"back"|"left"|"right"|"top"|"bottom"
-    u: float = 0.5  # 面上的水平位置 [0,1]
-    v: float = 0.5  # 面上的垂直位置 [0,1]
+    face: str
+    u: float = 0.5
+    v: float = 0.5
 
 
 @dataclass
 class ConnectionGroup:
-    """一组需要互联的端口集合（形成一个斯坦纳树网络）。"""
     port_ids: List[str]
 
 
@@ -118,8 +111,33 @@ class ConnectionGroup:
 Point3D = Tuple[float, float, float]
 
 
-def point_distance(a: Point3D, b: Point3D) -> float:
-    return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2)
+def manhattan_distance(a: Point3D, b: Point3D) -> float:
+    """曼哈顿距离（正交布线总长）。"""
+    return abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
+
+
+def orthogonal_segments(a: Point3D, b: Point3D) -> List[Tuple[Point3D, Point3D]]:
+    """将两点间的正交路径分解为 X→Y→Z 三段轴对齐线段。
+
+    路径: a → (bx, ay, az) → (bx, by, az) → b
+    """
+    bx, by, bz = b
+    p1 = (bx, a[1], a[2])   # X 移动后
+    p2 = (bx, by, a[2])     # X,Y 移动后
+    segs: List[Tuple[Point3D, Point3D]] = []
+    # X 段
+    if abs(a[0] - p1[0]) > EPS:
+        segs.append((a, p1))
+    # Y 段
+    if abs(p1[1] - p2[1]) > EPS:
+        segs.append((p1, p2))
+    # Z 段
+    if abs(p2[2] - b[2]) > EPS:
+        segs.append((p2, b))
+    # 如果两点重合，直接连接
+    if not segs:
+        segs.append((a, b))
+    return segs
 
 
 def segment_obb_intersect(
@@ -127,14 +145,10 @@ def segment_obb_intersect(
     p1: Point3D,
     cuboid: Cuboid3D,
 ) -> bool:
-    """检测线段 p0-p1 是否与长方体（OBB，仅绕 Z 旋转）相交。
-
-    方法：将线段变换到长方体局部坐标系，然后做 AABB 射线检测。
-    """
+    """检测线段 p0-p1 是否与长方体（OBB，仅绕 Z 旋转）相交。"""
     ca = math.cos(-cuboid.angle)
     sa = math.sin(-cuboid.angle)
 
-    # 平移
     tx0 = p0[0] - cuboid.cx
     ty0 = p0[1] - cuboid.cy
     tz0 = p0[2] - cuboid.cz
@@ -142,7 +156,6 @@ def segment_obb_intersect(
     ty1 = p1[1] - cuboid.cy
     tz1 = p1[2] - cuboid.cz
 
-    # 绕 Z 旋转到局部坐标系
     lx0 = tx0 * ca - ty0 * sa
     ly0 = tx0 * sa + ty0 * ca
     lz0 = tz0
@@ -166,11 +179,8 @@ def _segment_aabb_intersect(
     box_min: Tuple[float, float, float],
     box_max: Tuple[float, float, float],
 ) -> bool:
-    """线段与轴对齐包围盒相交检测（slab 方法）。"""
     d = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
-
     tmin, tmax = 0.0, 1.0
-
     for i in range(3):
         if abs(d[i]) < EPS:
             if p0[i] < box_min[i] or p0[i] > box_max[i]:
@@ -185,15 +195,14 @@ def _segment_aabb_intersect(
             tmax = min(tmax, t2)
             if tmin > tmax:
                 return False
-
     return True
 
 
 # ============================================================================
-# Prim 算法求最小生成树
+# Prim 算法求最小生成树（曼哈顿距离）
 # ============================================================================
 def compute_mst(nodes: List[Point3D]) -> List[Tuple[int, int, float]]:
-    """计算欧几里得距离下的 MST，返回边列表 (i, j, distance)。"""
+    """计算曼哈顿距离下的 MST，返回边列表 (i, j, distance)。"""
     n = len(nodes)
     if n <= 1:
         return []
@@ -217,7 +226,7 @@ def compute_mst(nodes: List[Point3D]) -> List[Tuple[int, int, float]]:
 
         for v in range(n):
             if not visited[v]:
-                d = point_distance(nodes[u], nodes[v])
+                d = manhattan_distance(nodes[u], nodes[v])
                 if d < min_dist[v]:
                     min_dist[v] = d
                     parent[v] = u
@@ -225,13 +234,13 @@ def compute_mst(nodes: List[Point3D]) -> List[Tuple[int, int, float]]:
     edges: List[Tuple[int, int, float]] = []
     for v in range(1, n):
         if parent[v] >= 0:
-            edges.append((parent[v], v, point_distance(nodes[parent[v]], nodes[v])))
+            edges.append((parent[v], v, manhattan_distance(nodes[parent[v]], nodes[v])))
 
     return edges
 
 
 # ============================================================================
-# 斯坦纳树 GA 求解器
+# 斯坦纳树 GA 求解器（正交布线）
 # ============================================================================
 @dataclass
 class SteinerGene:
@@ -242,10 +251,10 @@ class SteinerGene:
 
 
 class SteinerTreeGA:
-    """遗传算法求解带碰撞约束的三维斯坦纳树。
+    """遗传算法求解带碰撞约束的三维正交斯坦纳树。
 
-    决策变量：最多 max_steiner 个 Steiner 点，每个点 (x,y,z,active)。
-    适应度 = -(总树长 + 碰撞惩罚)
+    所有连线必须沿 X/Y/Z 轴方向。每条 MST 边分解为 3 段正交线段，
+    逐段检查碰撞。适应度 = -(曼哈顿树总长 + 碰撞惩罚)。
     """
 
     def __init__(
@@ -285,7 +294,6 @@ class SteinerTreeGA:
 
         self.rng = random.Random(random_seed)
 
-        # terminal 包围盒扩大一些作为 Steiner 点的搜索范围
         xs = [t[0] for t in terminals]
         ys = [t[1] for t in terminals]
         zs = [t[2] for t in terminals]
@@ -312,18 +320,19 @@ class SteinerTreeGA:
         return pop
 
     def _get_all_nodes(self, chromosome: Sequence[SteinerGene]) -> List[Point3D]:
-        """返回 terminals + 活跃 Steiner 点的全部节点列表。"""
         nodes = list(self.terminals)
         for gene in chromosome:
             if gene.active:
                 nodes.append((gene.x, gene.y, gene.z))
         return nodes
 
-    def _edge_collides(self, a: Point3D, b: Point3D) -> bool:
-        """检查线段 ab 是否与任何长方体碰撞。"""
-        for cuboid in self.cuboids:
-            if segment_obb_intersect(a, b, cuboid):
-                return True
+    def _ortho_path_collides(self, a: Point3D, b: Point3D) -> bool:
+        """检查 a→b 的正交路径（X→Y→Z）是否与任何长方体碰撞。"""
+        segs = orthogonal_segments(a, b)
+        for seg_a, seg_b in segs:
+            for cuboid in self.cuboids:
+                if segment_obb_intersect(seg_a, seg_b, cuboid):
+                    return True
         return False
 
     def _fitness(self, chromosome: Sequence[SteinerGene]) -> float:
@@ -336,7 +345,7 @@ class SteinerTreeGA:
         penalty = 0.0
 
         for i, j, _ in edges:
-            if self._edge_collides(nodes[i], nodes[j]):
+            if self._ortho_path_collides(nodes[i], nodes[j]):
                 penalty += self.collision_penalty
 
         return -(total_length + penalty)
@@ -429,13 +438,12 @@ class SteinerTreeGA:
 
             population = next_pop
 
-        # 构建最终结果
         nodes = self._get_all_nodes(best_chromosome)
         edges = compute_mst(nodes)
         total_length = sum(e[2] for e in edges)
         collision_count = 0
         for i, j, _ in edges:
-            if self._edge_collides(nodes[i], nodes[j]):
+            if self._ortho_path_collides(nodes[i], nodes[j]):
                 collision_count += 1
 
         steiner_points = [
@@ -470,12 +478,6 @@ def solve_connections(
     max_steiner_per_group: int | None = None,
     **ga_kwargs,
 ) -> Dict[str, object]:
-    """求解多组连接的斯坦纳树。
-
-    Returns:
-        groups: 每组的结果列表
-        total_length: 全部连接总长
-    """
     port_map = {p.id: p for p in ports}
     cuboid_map = {c.id: c for c in cuboids}
 
@@ -510,7 +512,7 @@ def solve_connections(
 
 
 # ============================================================================
-# 3D 可视化
+# 3D 可视化（正交路径）
 # ============================================================================
 def visualize_3d(
     cuboids: List[Cuboid3D],
@@ -519,10 +521,8 @@ def visualize_3d(
     save_path: str | None = None,
     show: bool = True,
 ) -> None:
-    """绘制三维场景：长方体 + 端口 + 斯坦纳树连接线。"""
     try:
         import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     except ImportError:
         print("需要安装 matplotlib 进行 3D 可视化。")
         return
@@ -530,7 +530,7 @@ def visualize_3d(
     fig = plt.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection='3d')
 
-    # 绘制长方体
+    # 长方体
     face_colors = [
         "#A8DADC", "#F4A261", "#2A9D8F", "#E76F51", "#8AB17D",
         "#F6BD60", "#90CAF9", "#BDB2FF", "#FFD6A5", "#84A59D",
@@ -539,17 +539,15 @@ def visualize_3d(
         color = face_colors[idx % len(face_colors)]
         _draw_cuboid(ax, cb, color=color, alpha=0.4)
 
-    # 绘制端口
-    port_map = {p.id: p for p in ports}
+    # 端口
     cuboid_map = {c.id: c for c in cuboids}
-
     for p in ports:
         c = cuboid_map[p.cuboid_id]
         wx, wy, wz = c.face_to_world(p.face, p.u, p.v)
         ax.scatter(wx, wy, wz, c='red', s=60, marker='o', edgecolors='darkred', linewidth=1.5)
         ax.text(wx, wy, wz + 0.3, p.id, fontsize=9, ha='center', va='bottom', color='darkred')
 
-    # 绘制连接线（斯坦纳树）
+    # 正交连接线
     edge_colors = [
         "#1D3557", "#E63946", "#457B9D", "#6D6875",
         "#2A9D8F", "#D62828", "#3A5A40",
@@ -557,22 +555,22 @@ def visualize_3d(
     for gi, group_result in enumerate(result["groups"]):
         ec = edge_colors[gi % len(edge_colors)]
         edges = group_result["edges"]
-        nodes = group_result["nodes"]
-        terminals = group_result["terminals"]
         steiner = group_result.get("steiner_points", [])
 
         for a, b, _ in edges:
-            ax.plot(
-                [a[0], b[0]], [a[1], b[1]], [a[2], b[2]],
-                color=ec, linewidth=2.5, alpha=0.85,
-            )
+            segs = orthogonal_segments(a, b)
+            for sa, sb in segs:
+                ax.plot(
+                    [sa[0], sb[0]], [sa[1], sb[1]], [sa[2], sb[2]],
+                    color=ec, linewidth=2.5, alpha=0.85,
+                )
 
-        # 绘制 Steiner 点
+        # Steiner 点
         for sp in steiner:
             ax.scatter(sp[0], sp[1], sp[2], c='blue', s=50, marker='^',
                        edgecolors='darkblue', linewidth=1.0, alpha=0.9)
 
-    # 标注长方体标签
+    # 长方体标签
     for cb in cuboids:
         ax.text(cb.cx, cb.cy, cb.cz + cb.height / 2 + 0.5,
                 cb.id, fontsize=10, ha='center', va='bottom', weight='bold')
@@ -580,7 +578,7 @@ def visualize_3d(
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.set_title('3D Steiner Tree Connection (GA)')
+    ax.set_title('3D Orthogonal Steiner Tree (GA) — Manhattan routing')
     ax.set_box_aspect([1, 1, 0.6])
 
     if save_path:
@@ -594,20 +592,17 @@ def visualize_3d(
 
 
 def _draw_cuboid(ax, cb: Cuboid3D, color: str = "#A8DADC", alpha: float = 0.4):
-    """在 3D 坐标轴中绘制一个绕 Z 轴旋转的长方体。"""
     hw = cb.width / 2
     hd = cb.depth / 2
     hh = cb.height / 2
     ca, sa = math.cos(cb.angle), math.sin(cb.angle)
 
-    # 8 个角点（局部坐标）
     corners_local = []
     for dx in (-hw, hw):
         for dy in (-hd, hd):
             for dz in (-hh, hh):
                 corners_local.append((dx, dy, dz))
 
-    # 转换到世界坐标
     corners_world = []
     for lx, ly, lz in corners_local:
         wx = cb.cx + lx * ca - ly * sa
@@ -615,14 +610,10 @@ def _draw_cuboid(ax, cb: Cuboid3D, color: str = "#A8DADC", alpha: float = 0.4):
         wz = cb.cz + lz
         corners_world.append((wx, wy, wz))
 
-    # 6 个面
     faces = [
-        [0, 1, 3, 2],  # -Z
-        [4, 5, 7, 6],  # +Z
-        [0, 1, 5, 4],  # -Y
-        [2, 3, 7, 6],  # +Y
-        [0, 2, 6, 4],  # -X
-        [1, 3, 7, 5],  # +X
+        [0, 1, 3, 2], [4, 5, 7, 6],
+        [0, 1, 5, 4], [2, 3, 7, 6],
+        [0, 2, 6, 4], [1, 3, 7, 5],
     ]
     verts = [[corners_world[i] for i in face] for face in faces]
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -635,11 +626,8 @@ def _draw_cuboid(ax, cb: Cuboid3D, color: str = "#A8DADC", alpha: float = 0.4):
 # Demo
 # ============================================================================
 def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool = True) -> None:
-    """基于 auto_boundary GA case1 排布结果的 3D 连接演示。"""
-    print("=== 3D Steiner Tree Connection (GA) ===\n")
+    print("=== 3D Orthogonal Steiner Tree Connection (GA) ===\n")
 
-    # ── 2D 排布结果提升为 3D ──
-    # 模拟 auto_boundary GA 的 case1 输出
     cuboids = [
         Cuboid3D(id="A1", cx=3.50, cy=14.50, cz=1.50, width=5, depth=4, height=3.0, angle=0.0),
         Cuboid3D(id="A2", cx=3.50, cy=4.50,  cz=1.50, width=6, depth=4, height=3.0, angle=0.0),
@@ -648,25 +636,19 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
     boundary_w = 18.0
     boundary_h = 20.0
 
-    # ── 定义端口 ──
     ports = [
-        # A1 设备
-        Port(id="P1_in",  cuboid_id="A1", face="top",    u=0.5, v=0.5),  # 顶部中心
-        Port(id="P1_out", cuboid_id="A1", face="right",  u=0.5, v=0.5),  # 右侧中心
-        # A2 设备
+        Port(id="P1_in",  cuboid_id="A1", face="top",    u=0.5, v=0.5),
+        Port(id="P1_out", cuboid_id="A1", face="right",  u=0.5, v=0.5),
         Port(id="P2_in",  cuboid_id="A2", face="top",    u=0.5, v=0.5),
         Port(id="P2_out", cuboid_id="A2", face="left",   u=0.5, v=0.5),
-        # A3 设备
         Port(id="P3_in",  cuboid_id="A3", face="top",    u=0.5, v=0.5),
         Port(id="P3_out", cuboid_id="A3", face="back",   u=0.5, v=0.5),
     ]
 
-    # ── 定义连接组 ──
     connection_groups = [
-        ConnectionGroup(port_ids=["P1_out", "P2_out", "P3_out"]),  # 三个输出汇聚
+        ConnectionGroup(port_ids=["P1_out", "P2_out", "P3_out"]),
     ]
 
-    # ── 显示端口坐标 ──
     print("端口世界坐标:")
     cuboid_map = {c.id: c for c in cuboids}
     for p in ports:
@@ -679,7 +661,6 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
     for cg in connection_groups:
         print(f"  端口: {cg.port_ids}")
 
-    # ── 求解 ──
     result = solve_connections(
         cuboids=cuboids,
         ports=ports,
@@ -690,26 +671,24 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
         population_size=150,
         generations=300,
         tournament_size=3,
-        collision_penalty=500.0,
+        collision_penalty=800.0,
         random_seed=42,
     )
 
-    # ── 输出结果 ──
     print(f"\n{'='*60}")
-    print(f"总连接长度: {result['total_length']:.3f}")
+    print(f"总连接长度 (曼哈顿): {result['total_length']:.3f}")
     for gi, gr in enumerate(result["groups"]):
         print(f"\n连接组 {gi+1}:")
         print(f"  适应度: {gr['best_fitness']:.3f}")
-        print(f"  树总长: {gr['total_length']:.3f}")
+        print(f"  树总长 (曼哈顿): {gr['total_length']:.3f}")
         print(f"  碰撞数: {gr['collision_count']}")
         print(f"  Steiner 点数: {len(gr['steiner_points'])}")
         for i, sp in enumerate(gr['steiner_points']):
             print(f"    S{i+1}: ({sp[0]:.2f}, {sp[1]:.2f}, {sp[2]:.2f})")
-        print(f"  边:")
+        print(f"  逻辑边 (曼哈顿距离):")
         for a, b, d in gr['edges']:
-            print(f"    ({a[0]:.2f},{a[1]:.2f},{a[2]:.2f}) -> ({b[0]:.2f},{b[1]:.2f},{b[2]:.2f})  len={d:.3f}")
+            print(f"    ({a[0]:.2f},{a[1]:.2f},{a[2]:.2f}) -> ({b[0]:.2f},{b[1]:.2f},{b[2]:.2f})  L1={d:.3f}")
 
-    # ── 可视化 ──
     if visualize:
         visualize_3d(
             cuboids=cuboids,
@@ -722,7 +701,7 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="3D Steiner Tree connection optimization using GA."
+        description="3D Orthogonal Steiner Tree connection optimization using GA."
     )
     parser.add_argument("--no-vis", action="store_true", help="Disable 3D plotting.")
     parser.add_argument("--save-fig", type=str, default=None, help="Save 3D figure to path.")
