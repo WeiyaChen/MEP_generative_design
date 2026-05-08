@@ -271,7 +271,7 @@ def run_ga(tc: TestCase, seed: int = 42) -> RunResult:
         mutation_rate=0.18,
         elite_count=5,
         tournament_size=3,
-        angle_preference_weight=22.0,
+        angle_preference_weight=50.0,
         boundary_area_weight=0.5,
         random_seed=seed,
     )
@@ -306,7 +306,7 @@ def run_pso(tc: TestCase, seed: int = 42) -> RunResult:
         w_end=0.4,
         c1=1.8,
         c2=1.8,
-        angle_preference_weight=22.0,
+        angle_preference_weight=50.0,
         boundary_area_weight=0.5,
         random_seed=seed,
     )

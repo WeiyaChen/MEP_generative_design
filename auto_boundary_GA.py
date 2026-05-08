@@ -242,7 +242,7 @@ class AutoBoundaryGAPacker:
         mutation_rate: float = 0.16,
         elite_count: int = 6,
         tournament_size: int = 3,
-        angle_preference_weight: float = 20.0,
+        angle_preference_weight: float = 50.0,
         boundary_area_weight: float = 0.5,
         random_seed: int | None = 7,
     ) -> None:
@@ -292,7 +292,7 @@ class AutoBoundaryGAPacker:
         angle = 0.0
         if spec.rotatable:
             r = self.rng.random()
-            if r < 0.7:
+            if r < 0.9:
                 angle = self.rng.choice([0.0, 0.5, 1.0, 1.5]) * math.pi
             else:
                 deg = self.rng.choice(VALID_ANGLES_DEG)
@@ -456,7 +456,7 @@ class AutoBoundaryGAPacker:
                 angle_deg += step
                 angle_deg = round(angle_deg / 10.0) * 10.0
                 angle = math.radians(angle_deg)
-                if self.rng.random() < 0.35:
+                if self.rng.random() < 0.55:
                     axis_deg = round(angle_deg / 90.0) * 90.0
                     angle_deg = axis_deg + self.rng.choice([-10, 0, 10])
                     angle_deg = round(angle_deg / 10.0) * 10.0
@@ -493,7 +493,7 @@ class AutoBoundaryGAPacker:
 
         optional_sorted = sorted(
             optional,
-            key=lambda r: (r.area - 0.2 * axis_alignment_deviation(r.angle) * r.area),
+            key=lambda r: (r.area - 0.5 * axis_alignment_deviation(r.angle) * r.area),
             reverse=True,
         )
         for rect in optional_sorted:
@@ -750,7 +750,7 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
         population_size=260,
         generations=300,
         mutation_rate=0.18,
-        angle_preference_weight=22.0,
+        angle_preference_weight=50.0,
         boundary_area_weight=0.5,
         random_seed=42,
     )

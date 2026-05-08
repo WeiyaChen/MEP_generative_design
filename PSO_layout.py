@@ -235,7 +235,7 @@ class PSORectanglePacker:
         vmax_cxy_ratio: float = 0.15,  # v_max for cx,cy = ratio * range
         vmax_angle: float = 60.0,      # v_max for angle (degrees)
         vmax_active: float = 0.35,     # v_max for active probability
-        angle_preference_weight: float = 20.0,
+        angle_preference_weight: float = 50.0,
         random_seed: int | None = 7,
     ) -> None:
         if len(polygon) < 3:
@@ -305,7 +305,7 @@ class PSORectanglePacker:
             # angle (degree) — only multiples of 10
             if spec.rotatable:
                 r = self.rng.random()
-                if r < 0.7:
+                if r < 0.9:
                     pos.append(float(self.rng.choice([0, 90, 180, 270])))
                 else:
                     pos.append(self.rng.choice(VALID_ANGLES_DEG))
@@ -504,7 +504,7 @@ class PSORectanglePacker:
 
         optional_sorted = sorted(
             optional,
-            key=lambda r: (r.area - 0.2 * axis_alignment_deviation(r.angle) * r.area),
+            key=lambda r: (r.area - 0.5 * axis_alignment_deviation(r.angle) * r.area),
             reverse=True,
         )
         for rect in optional_sorted:
@@ -767,7 +767,7 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
         w_end=0.4,
         c1=1.8,
         c2=1.8,
-        angle_preference_weight=22.0,
+        angle_preference_weight=50.0,
         random_seed=42,
     )
     result = solver.solve()
