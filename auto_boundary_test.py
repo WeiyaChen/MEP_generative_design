@@ -14,7 +14,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import List, Tuple
 
 try:
     from auto_boundary_GA import (
@@ -22,7 +22,6 @@ try:
         RectangleSpec,
         SquareObstacle,
         PlacedRect,
-        Point,
         visualize_layout,
     )
 except ImportError:

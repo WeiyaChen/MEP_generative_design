@@ -11,7 +11,7 @@
 - **auto_boundary_PSO.py** — 粒子群算法 + 自动生成矩形边界
 
 ### 三维管线连接
-- **steiner_connect_3D.py** — 正交斯坦纳树连接优化（曼哈顿距离，X/Y/Z 轴对齐布线，碰撞约束）
+- **steiner_connect_3D.py** — 正交斯坦纳树连接优化（曼哈顿距离，X/Y/Z 轴对齐布线，碰撞约束），matplotlib 3D 可视化支持交互视角按钮（正视图/俯视图/侧视图/等轴测）和投影切换
 
 ### 完整管道
 - **pipeline_2D_to_3D.py** — 串联 2D 排布 → 3D 连接，支持 JSON 配置
@@ -48,6 +48,7 @@ python auto_boundary_test.py --no-plots
 | 碰撞检测 | SAT（分离轴定理）二维碰撞 + OBB/AABB 三维碰撞 |
 | 正交布线 | 曼哈顿距离，X→Y→Z 阶梯路径 |
 | 端口偏移 | 端口从设备表面外移 0.12 单位，避免碰撞误判 |
+| 交互视图 | `steiner_connect_3D.py` 支持 Matplotlib 3D 视角按钮和透视/正交投影切换 |
 
 ## 关键参数
 
@@ -68,14 +69,18 @@ python auto_boundary_test.py --no-plots
 
 ```
 .
-├── GA_layout.py              # GA 二维排布（指定边界）
-├── PSO_layout.py             # PSO 二维排布（指定边界）
-├── auto_boundary_GA.py       # GA 二维排布（自动边界）
-├── auto_boundary_PSO.py      # PSO 二维排布（自动边界）
-├── steiner_connect_3D.py     # 三维正交斯坦纳树连接
-├── pipeline_2D_to_3D.py      # 完整管道（2D→3D）
-├── test_layout.py            # 指定边界对比测试
-├── auto_boundary_test.py     # 自动边界对比测试
+├── GA_layout.py                  # GA 二维排布（指定边界）
+├── PSO_layout.py                 # PSO 二维排布（指定边界）
+├── auto_boundary_GA.py           # GA 二维排布（自动边界）
+├── auto_boundary_PSO.py          # PSO 二维排布（自动边界）
+├── steiner_connect_3D.py         # 三维正交斯坦纳树连接
+├── pipeline_2D_to_3D.py          # 完整管道（2D→3D）
+├── test_layout.py                # 指定边界对比测试
+├── auto_boundary_test.py         # 自动边界对比测试
+├── config.py                     # JSON 配置解析与默认参数
 ├── example_pipeline_config.json  # 管道 JSON 配置示例
+├── layout_common_def.py          # 布局通用定义
+├── layout_geometry_def.py        # 布局几何定义
+├── layout_result.svg             # 可视化结果示例
 └── README.md
 ```

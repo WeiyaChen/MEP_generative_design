@@ -13,84 +13,27 @@ import random
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
-Point = Tuple[float, float]
-EPS = 1e-9
-
-# ---------------------------------------------------------------------------
-# 10° 整数倍角度工具
-# ---------------------------------------------------------------------------
-VALID_ANGLES_DEG = [float(i) for i in range(0, 360, 10)]
-VALID_ANGLES_RAD = [math.radians(d) for d in VALID_ANGLES_DEG]
-
-
-def snap_angle_to_10deg(theta_rad: float) -> float:
-    deg = math.degrees(theta_rad)
-    snapped_deg = round(deg / 10.0) * 10.0
-    return wrap_angle(math.radians(snapped_deg))
+from config import AlgorithmConfig
+from layout_common_def import (
+    Point,
+    EPS,
+    VALID_ANGLES_DEG,
+    Gene,
+    RectangleSpec,
+    SquareObstacle,
+    PlacedRect,
+    clamp,
+    wrap_angle,
+    convex_overlap_strict,
+    rect_inside_polygon,
+    axis_alignment_deviation,
+)
 
 
 # ---------------------------------------------------------------------------
 # 数据结构
 # ---------------------------------------------------------------------------
-@dataclass(frozen=True)
-class RectangleSpec:
-    id: str
-    width: float
-    height: float
-    rotatable: bool = True
-    mandatory: bool = False
 
-
-@dataclass(frozen=True)
-class SquareObstacle:
-    x: float
-    y: float
-    size: float
-
-    def as_polygon(self) -> List[Point]:
-        x, y, s = self.x, self.y, self.size
-        return [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
-
-
-@dataclass
-class Gene:
-    cx: float
-    cy: float
-    angle: float
-    active: bool
-
-
-@dataclass(frozen=True)
-class PlacedRect:
-    id: str
-    cx: float
-    cy: float
-    width: float
-    height: float
-    angle: float
-    mandatory: bool
-
-    @property
-    def area(self) -> float:
-        return self.width * self.height
-
-    def corners(self) -> List[Point]:
-        hw = self.width / 2.0
-        hh = self.height / 2.0
-        ca = math.cos(self.angle)
-        sa = math.sin(self.angle)
-        local = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
-        pts: List[Point] = []
-        for lx, ly in local:
-            x = self.cx + lx * ca - ly * sa
-            y = self.cy + lx * sa + ly * ca
-            pts.append((x, y))
-        return pts
-
-
-# ---------------------------------------------------------------------------
-# 染色体：边界尺寸 + 矩形基因列表
-# ---------------------------------------------------------------------------
 @dataclass
 class Chromosome:
     boundary_w: float
@@ -104,124 +47,6 @@ class Chromosome:
 
 # ---------------------------------------------------------------------------
 # 几何工具函数
-# ---------------------------------------------------------------------------
-def clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
-
-
-def wrap_angle(theta: float) -> float:
-    while theta <= -math.pi:
-        theta += 2 * math.pi
-    while theta > math.pi:
-        theta -= 2 * math.pi
-    return theta
-
-
-def cross(a: Point, b: Point, c: Point) -> float:
-    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-
-def on_segment(a: Point, b: Point, p: Point) -> bool:
-    if abs(cross(a, b, p)) > EPS:
-        return False
-    return (
-        min(a[0], b[0]) - EPS <= p[0] <= max(a[0], b[0]) + EPS
-        and min(a[1], b[1]) - EPS <= p[1] <= max(a[1], b[1]) + EPS
-    )
-
-
-def segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool:
-    c1 = cross(a, b, c)
-    c2 = cross(a, b, d)
-    c3 = cross(c, d, a)
-    c4 = cross(c, d, b)
-    if (c1 * c2 < -EPS) and (c3 * c4 < -EPS):
-        return True
-    if abs(c1) <= EPS and on_segment(a, b, c):
-        return True
-    if abs(c2) <= EPS and on_segment(a, b, d):
-        return True
-    if abs(c3) <= EPS and on_segment(c, d, a):
-        return True
-    if abs(c4) <= EPS and on_segment(c, d, b):
-        return True
-    return False
-
-
-def segments_properly_intersect(a: Point, b: Point, c: Point, d: Point) -> bool:
-    c1 = cross(a, b, c)
-    c2 = cross(a, b, d)
-    c3 = cross(c, d, a)
-    c4 = cross(c, d, b)
-    return (c1 * c2 < -EPS) and (c3 * c4 < -EPS)
-
-
-def point_in_polygon(point: Point, polygon: Sequence[Point]) -> bool:
-    x, y = point
-    inside = False
-    n = len(polygon)
-    for i in range(n):
-        a = polygon[i]
-        b = polygon[(i + 1) % n]
-        if on_segment(a, b, point):
-            return True
-        yi, yj = a[1], b[1]
-        if (yi > y) != (yj > y):
-            x_intersect = (b[0] - a[0]) * (y - yi) / (yj - yi) + a[0]
-            if x < x_intersect:
-                inside = not inside
-    return inside
-
-
-def polygon_edges(poly: Sequence[Point]) -> List[Tuple[Point, Point]]:
-    return [(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))]
-
-
-def polygon_inside_polygon(inner: Sequence[Point], outer: Sequence[Point]) -> bool:
-    if not all(point_in_polygon(p, outer) for p in inner):
-        return False
-    outer_edges = polygon_edges(outer)
-    inner_edges = polygon_edges(inner)
-    for ie in inner_edges:
-        for oe in outer_edges:
-            if segments_properly_intersect(ie[0], ie[1], oe[0], oe[1]):
-                return False
-    return True
-
-
-def project_polygon(poly: Sequence[Point], axis: Point) -> Tuple[float, float]:
-    ax, ay = axis
-    values = [p[0] * ax + p[1] * ay for p in poly]
-    return min(values), max(values)
-
-
-def convex_overlap_strict(poly1: Sequence[Point], poly2: Sequence[Point]) -> bool:
-    for poly in (poly1, poly2):
-        n = len(poly)
-        for i in range(n):
-            a = poly[i]
-            b = poly[(i + 1) % n]
-            edge = (b[0] - a[0], b[1] - a[1])
-            axis = (-edge[1], edge[0])
-            length = math.hypot(axis[0], axis[1])
-            if length <= EPS:
-                continue
-            axis = (axis[0] / length, axis[1] / length)
-            min1, max1 = project_polygon(poly1, axis)
-            min2, max2 = project_polygon(poly2, axis)
-            if (max1 <= min2 + EPS) or (max2 <= min1 + EPS):
-                return False
-    return True
-
-
-def rect_inside_polygon(rect: PlacedRect, polygon: Sequence[Point]) -> bool:
-    return polygon_inside_polygon(rect.corners(), polygon)
-
-
-def axis_alignment_deviation(angle: float) -> float:
-    return abs(math.sin(2.0 * angle))
-
-
 # ---------------------------------------------------------------------------
 # 遗传算法求解器 — 自动边界版
 # ---------------------------------------------------------------------------
@@ -725,7 +550,12 @@ def save_layout_svg(
 # ---------------------------------------------------------------------------
 # demo & CLI
 # ---------------------------------------------------------------------------
-def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool = True) -> None:
+def demo(
+    visualize: bool = True,
+    save_path: str | None = None,
+    show_plot: bool = True,
+    solver_config: AlgorithmConfig | None = None,
+) -> None:
     obstacles = [
         SquareObstacle(x=9.0, y=8.0, size=4.0),
         SquareObstacle(x=23.0, y=12.0, size=5.0),
@@ -744,15 +574,11 @@ def demo(visualize: bool = True, save_path: str | None = None, show_plot: bool =
         RectangleSpec("R9", 4, 6, rotatable=True, mandatory=False),
     ]
 
+    solver_config = solver_config or AlgorithmConfig()
     solver = AutoBoundaryGAPacker(
         obstacles=obstacles,
         rectangles=rectangles,
-        population_size=260,
-        generations=300,
-        mutation_rate=0.18,
-        angle_preference_weight=50.0,
-        boundary_area_weight=0.5,
-        random_seed=42,
+        **solver_config.to_kwargs(),
     )
     result = solver.solve()
 
@@ -789,11 +615,16 @@ if __name__ == "__main__":
     )
     parser.add_argument("--no-vis", action="store_true", help="Disable plotting.")
     parser.add_argument("--save-fig", type=str, default=None, help="Save figure to path.")
+    parser.add_argument("--config", type=str, default=None,
+                        help="JSON config file for GA algorithm parameters.")
     parser.add_argument("--no-show", action="store_true", help="Do not open plot window.")
     args = parser.parse_args()
+
+    solver_config = AlgorithmConfig.from_json(args.config) if args.config else AlgorithmConfig()
 
     demo(
         visualize=not args.no_vis,
         save_path=args.save_fig,
         show_plot=not args.no_show,
+        solver_config=solver_config,
     )

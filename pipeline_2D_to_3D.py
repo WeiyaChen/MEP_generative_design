@@ -19,8 +19,9 @@ import json
 import math
 import os
 import sys
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
+
+from config import Equipment3DConfig, PipelineConfig
 
 # ── 导入二维求解器 ──
 from auto_boundary_GA import (
@@ -68,43 +69,16 @@ def run_2d_layout(
 # ============================================================================
 # 步骤 2: 二维 → 三维转换
 # ============================================================================
-@dataclass
-class Equipment3DConfig:
-    """单个设备的 3D 扩展配置。"""
-    rect_id: str            # 对应 RectangleSpec.id / PlacedRect.id
-    height: float           # Z 方向高度
-    ports: List[Dict] = field(default_factory=list)
-    # 每个 port: {"id": str, "face": str, "u": float, "v": float}
-
-
-@dataclass
-class PipelineConfig:
-    """完整管道配置。"""
-    equipment: List[Equipment3DConfig]
-    connections: List[List[str]]  # 每组是一组需互联的端口 ID 列表
-    layout_seed: int = 42
-    ga_2d_kwargs: Dict = field(default_factory=dict)
-    ga_3d_kwargs: Dict = field(default_factory=dict)
-
 
 def convert_to_cuboids(
-    placed_rects: Sequence[PlacedRect],
-    equip_configs: List[Equipment3DConfig],
+    placed_rectangles: List[PlacedRect],
+    equipment_configs: List[Equipment3DConfig],
 ) -> Tuple[List[Cuboid3D], List[Port]]:
-    """将二维排布结果 + 设备 3D 配置转换为 Cuboid3D 和 Port 列表。
-
-    Args:
-        placed_rects: 二维排布的输出
-        equip_configs: 每个设备的 3D 信息（高度、端口）
-
-    Returns:
-        (cuboids, ports)
-    """
-    config_map = {ec.rect_id: ec for ec in equip_configs}
     cuboids: List[Cuboid3D] = []
     ports: List[Port] = []
+    config_map = {cfg.rect_id: cfg for cfg in equipment_configs}
 
-    for pr in placed_rects:
+    for pr in placed_rectangles:
         ec = config_map.get(pr.id)
         if ec is None:
             print(f"  [警告] 设备 {pr.id} 无 3D 配置，跳过")
@@ -224,11 +198,7 @@ def run_pipeline(
         connection_groups=connection_groups,
         boundary_w=layout_2d["boundary_w"],
         boundary_h=layout_2d["boundary_h"],
-        max_height=config.ga_3d_kwargs.get("max_height", 10.0),
-        population_size=config.ga_3d_kwargs.get("population_size", 150),
-        generations=config.ga_3d_kwargs.get("generations", 300),
-        collision_penalty=config.ga_3d_kwargs.get("collision_penalty", 800.0),
-        random_seed=config.layout_seed + 100,
+        **config.ga_3d_kwargs,
     )
     print(f"  总连接长度 (曼哈顿): {connections_3d['total_length']:.3f}")
     for gi, gr in enumerate(connections_3d["groups"]):
@@ -266,6 +236,13 @@ def build_demo_config() -> Tuple[List[Rect2D], PipelineConfig]:
     ]
 
     config = PipelineConfig(
+        rectangles=[
+            {"id": "R1", "width": 5, "height": 4, "rotatable": True, "mandatory": True},
+            {"id": "R2", "width": 6, "height": 4, "rotatable": True, "mandatory": True},
+            {"id": "R3", "width": 4, "height": 3, "rotatable": True, "mandatory": False},
+            {"id": "R4", "width": 5, "height": 5, "rotatable": True, "mandatory": False},
+            {"id": "R5", "width": 9, "height": 3, "rotatable": True, "mandatory": False},
+        ],
         equipment=[
             Equipment3DConfig(
                 rect_id="R1",
@@ -309,18 +286,20 @@ def build_demo_config() -> Tuple[List[Rect2D], PipelineConfig]:
             ),
         ],
         connections=[
-            ["P1_in",  "P2_in",  "P3_in",  "P4_in",  "P5_in" ],   # 入口汇总
-            ["P1_out", "P2_out", "P3_out", "P4_out", "P5_out"],   # 出口汇总
+            ["P1_in",  "P2_in",  "P3_in",  "P4_in",  "P5_in"],
+            ["P1_out", "P2_out", "P3_out", "P4_out", "P5_out"],
         ],
+        layout_seed=42,
         ga_2d_kwargs={
             "population_size": 100,
             "generations": 250,
         },
         ga_3d_kwargs={
             "max_height": 8.0,
-            "population_size": 180,
-            "generations": 350,
+            "population_size": 150,
+            "generations": 300,
             "collision_penalty": 800.0,
+            "random_seed": 142,
         },
     )
     return rectangles, config
@@ -334,36 +313,17 @@ def load_config_from_json(json_path: str) -> Tuple[List[Rect2D], PipelineConfig]
 
     格式见 example_pipeline_config.json。
     """
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # 解析矩形
-    rectangles = []
-    for r in data.get("rectangles", []):
-        rectangles.append(Rect2D(
+    config = PipelineConfig.from_json(json_path)
+    rectangles = [
+        Rect2D(
             id=r["id"],
             width=r["width"],
             height=r["height"],
             rotatable=r.get("rotatable", True),
             mandatory=r.get("mandatory", True),
-        ))
-
-    # 解析设备 3D 配置
-    equip_configs = []
-    for eq in data.get("equipment", []):
-        equip_configs.append(Equipment3DConfig(
-            rect_id=eq["rect_id"],
-            height=eq["height"],
-            ports=eq.get("ports", []),
-        ))
-
-    config = PipelineConfig(
-        equipment=equip_configs,
-        connections=data.get("connections", []),
-        layout_seed=data.get("layout_seed", 42),
-        ga_2d_kwargs=data.get("ga_2d_kwargs", {}),
-        ga_3d_kwargs=data.get("ga_3d_kwargs", {}),
-    )
+        )
+        for r in config.rectangles
+    ]
     return rectangles, config
 
 

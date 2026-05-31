@@ -19,7 +19,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import List, Tuple
 
 # ── 导入两个求解器 ─────────────────────────────────────────────
 # 确保 test3.py 和 test3_pso.py 在当前目录

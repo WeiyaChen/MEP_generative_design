@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
 EPS = 1e-9
@@ -580,6 +580,7 @@ def visualize_3d(
     ax.set_zlabel('Z')
     ax.set_title('3D Orthogonal Steiner Tree (GA) — Manhattan routing')
     ax.set_box_aspect([1, 1, 0.6])
+    _add_view_buttons(fig, ax)
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches='tight')
@@ -589,6 +590,54 @@ def visualize_3d(
         plt.show()
     else:
         plt.close(fig)
+
+
+def _add_view_buttons(fig, ax):
+    try:
+        from matplotlib.widgets import Button
+    except ImportError:
+        return
+
+    fig.subplots_adjust(bottom=0.15)
+    buttons = []
+    proj_mode = {"type": "persp"}
+
+    def _set_view(event, elev, azim, label):
+        print(f"[ViewButton] clicked: {label}, elev={elev}, azim={azim}")
+        ax.view_init(elev=elev, azim=azim)
+        fig.canvas.draw_idle()
+
+    def _toggle_projection(event):
+        if proj_mode["type"] == "persp":
+            proj_mode["type"] = "ortho"
+        else:
+            proj_mode["type"] = "persp"
+        try:
+            ax.set_proj_type(proj_mode["type"])
+            print(f"[ViewButton] projection toggled to {proj_mode['type']}")
+            fig.canvas.draw_idle()
+        except AttributeError:
+            print("[ViewButton] projection toggle not supported by this matplotlib version.")
+
+    button_defs = [
+        ("Front", 0.08, 0.05, 0.14, 0.06, 0.0, -90.0),
+        ("Top", 0.24, 0.05, 0.14, 0.06, 90.0, -90.0),
+        ("Side", 0.40, 0.05, 0.14, 0.06, 0.0, 0.0),
+        ("Isometric", 0.56, 0.05, 0.14, 0.06, 30.0, -45.0),
+        ("Proj", 0.72, 0.05, 0.14, 0.06, None, None),
+    ]
+
+    for label, x, y, w, h, elev, azim in button_defs:
+        ax_button = fig.add_axes([x, y, w, h])
+        button = Button(ax_button, label, hovercolor='#d9d9d9')
+        if label == "Proj":
+            button.on_clicked(_toggle_projection)
+        else:
+            button.on_clicked(lambda event, elev=elev, azim=azim, label=label: _set_view(event, elev, azim, label))
+        buttons.append(button)
+
+    # 保持按钮对象引用，避免被垃圾回收导致回调失效
+    fig._view_buttons = buttons
 
 
 def _draw_cuboid(ax, cb: Cuboid3D, color: str = "#A8DADC", alpha: float = 0.4):
